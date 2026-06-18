@@ -1,12 +1,7 @@
-import { Bot, InlineKeyboard, type Context } from "grammy";
-import {
-  conversations,
-  createConversation,
-  type Conversation,
-  type ConversationFlavor,
-} from "@grammyjs/conversations";
+const fs = require('fs');
 
-type MyContext = Context & ConversationFlavor<Context>;
+const botTs = `import { Bot, InlineKeyboard, type Context } from "grammy";
+import { conversations, createConversation, type Conversation } from "@grammyjs/conversations";
 import { searchSongs, getSong, getLyrics } from "./genius.js";
 import {
   generateSpotifyAuthUrl,
@@ -37,7 +32,7 @@ function backButton(keyboard: InlineKeyboard) {
   return keyboard.text("🔙 Quay lại menu", "menu:main").row();
 }
 
-async function lyricSearch(conversation: Conversation<MyContext, MyContext>, ctx: MyContext) {
+async function lyricSearch(conversation: Conversation<Context>, ctx: Context) {
   const prompt = await ctx.reply(
     "🎵 <b>Tìm lời bài hát</b>\n\nNhập tên bài hát bạn muốn tìm:",
     {
@@ -65,7 +60,7 @@ async function lyricSearch(conversation: Conversation<MyContext, MyContext>, ctx
   }
 
   const searching = await ctx.reply(
-    '🔎 Đang tìm "<b>' + escapeHtml(query) + '</b>"…',
+    \`🔎 Đang tìm "<b>\${escapeHtml(query)}</b>"…\`,
     { parse_mode: "HTML" }
   );
 
@@ -76,7 +71,7 @@ async function lyricSearch(conversation: Conversation<MyContext, MyContext>, ctx
     await ctx.api.editMessageText(
       searching.chat.id,
       searching.message_id,
-      "⚠️ Lỗi khi tìm kiếm: " + escapeHtml(String((err as Error).message)),
+      \`⚠️ Lỗi khi tìm kiếm: \${escapeHtml(String((err as Error).message))}\`,
       { parse_mode: "HTML", reply_markup: backButton(new InlineKeyboard()) }
     );
     return;
@@ -86,7 +81,7 @@ async function lyricSearch(conversation: Conversation<MyContext, MyContext>, ctx
     await ctx.api.editMessageText(
       searching.chat.id,
       searching.message_id,
-      'Không tìm thấy kết quả nào cho "<b>' + escapeHtml(query) + '</b>"\.',
+      \`Không tìm thấy kết quả nào cho "<b>\${escapeHtml(query)}</b>".\`,
       { parse_mode: "HTML", reply_markup: backButton(new InlineKeyboard()) }
     );
     return;
@@ -94,21 +89,21 @@ async function lyricSearch(conversation: Conversation<MyContext, MyContext>, ctx
 
   const keyboard = new InlineKeyboard();
   for (const hit of hits) {
-    const label = truncate(hit.title + " — " + hit.artist, 60);
-    keyboard.text(label, "lyric:" + hit.id).row();
+    const label = truncate(\`\${hit.title} — \${hit.artist}\`, 60);
+    keyboard.text(label, \`lyric:\${hit.id}\`).row();
   }
   backButton(keyboard);
 
   await ctx.api.editMessageText(
     searching.chat.id,
     searching.message_id,
-    "🎵 Tìm thấy <b>" + hits.length + '</b> kết quả cho "<b>' + escapeHtml(query) + '</b>".\nChọn bài bạn muốn xem lời:',
+    \`🎵 Tìm thấy <b>\${hits.length}</b> kết quả cho "<b>\${escapeHtml(query)}</b>".\nChọn bài bạn muốn xem lời:\`,
     { parse_mode: "HTML", reply_markup: keyboard }
   );
 }
 
-export function createBot(token: string): Bot<MyContext> {
-  const bot = new Bot<MyContext>(token);
+export function createBot(token: string): Bot {
+  const bot = new Bot(token);
 
   bot.use(conversations());
   bot.use(createConversation(lyricSearch));
@@ -154,7 +149,7 @@ export function createBot(token: string): Bot<MyContext> {
     }
 
     const searching = await ctx.reply(
-      '🔎 Đang tìm "<b>' + escapeHtml(query) + '</b>"…',
+      \`🔎 Đang tìm "<b>\${escapeHtml(query)}</b>"…\`,
       { parse_mode: "HTML" }
     );
 
@@ -164,7 +159,7 @@ export function createBot(token: string): Bot<MyContext> {
         await ctx.api.editMessageText(
           searching.chat.id,
           searching.message_id,
-          'Không tìm thấy kết quả nào cho "<b>' + escapeHtml(query) + '</b>"\.',
+          \`Không tìm thấy kết quả nào cho "<b>\${escapeHtml(query)}</b>".\`,
           { parse_mode: "HTML", reply_markup: backButton(new InlineKeyboard()) }
         );
         return;
@@ -172,22 +167,22 @@ export function createBot(token: string): Bot<MyContext> {
 
       const keyboard = new InlineKeyboard();
       for (const hit of hits) {
-        const label = truncate(hit.title + " — " + hit.artist, 60);
-        keyboard.text(label, "lyric:" + hit.id).row();
+        const label = truncate(\`\${hit.title} — \${hit.artist}\`, 60);
+        keyboard.text(label, \`lyric:\${hit.id}\`).row();
       }
       backButton(keyboard);
 
       await ctx.api.editMessageText(
         searching.chat.id,
         searching.message_id,
-        "🎵 Tìm thấy <b>" + hits.length + '</b> kết quả cho "<b>' + escapeHtml(query) + '</b>".\nChọn bài bạn muốn xem lời:',
+        \`🎵 Tìm thấy <b>\${hits.length}</b> kết quả cho "<b>\${escapeHtml(query)}</b>".\nChọn bài bạn muốn xem lời:\`,
         { parse_mode: "HTML", reply_markup: keyboard }
       );
     } catch (err) {
       await ctx.api.editMessageText(
         searching.chat.id,
         searching.message_id,
-        "⚠️ Lỗi khi tìm kiếm: " + escapeHtml(String((err as Error).message)),
+        \`⚠️ Lỗi khi tìm kiếm: \${escapeHtml(String((err as Error).message))}\`,
         { parse_mode: "HTML", reply_markup: backButton(new InlineKeyboard()) }
       );
     }
@@ -201,21 +196,21 @@ export function createBot(token: string): Bot<MyContext> {
     const existing = getSpotifyAuth(chatId, userId);
 
     if (existing) {
-      const name = existing.first_name || existing.username || "User " + userId;
+      const name = existing.first_name || existing.username || \`User \${userId}\`;
       const keyboard = new InlineKeyboard()
-        .text("🔓 Ngắt kết nối Spotify", "spotify:logout:" + chatId + ":" + userId)
+        .text("🔓 Ngắt kết nối Spotify", \`spotify:logout:\${chatId}:\${userId}\`)
         .row()
         .text("🔙 Quay lại menu", "menu:main");
 
       await ctx.reply(
-        "✅ <b>Bạn đã kết nối Spotify</b>\n\n👤 " + escapeHtml(name) + "\n\n" +
+        \`✅ <b>Bạn đã kết nối Spotify</b>\n\n👤 \${escapeHtml(name)}\n\n\` +
           "Nhấn nút bên dưới nếu muốn ngắt kết nối:",
         { parse_mode: "HTML", reply_markup: keyboard }
       );
       return;
     }
 
-    const state = chatId + ":" + userId + ":" + Math.random().toString(36).slice(2);
+    const state = \`\${chatId}:\${userId}:\${Math.random().toString(36).slice(2)}\`;
     try {
       const url = generateSpotifyAuthUrl(state);
       const keyboard = new InlineKeyboard().url("🔗 Kết nối Spotify", url);
@@ -240,7 +235,7 @@ export function createBot(token: string): Bot<MyContext> {
           { parse_mode: "HTML" }
         );
       } else {
-        await ctx.reply("⚠️ " + escapeHtml(msg), { parse_mode: "HTML" });
+        await ctx.reply(\`⚠️ \${escapeHtml(msg)}\`, { parse_mode: "HTML" });
       }
     }
   });
@@ -261,10 +256,10 @@ export function createBot(token: string): Bot<MyContext> {
     const keyboard = new InlineKeyboard();
     for (const auth of users) {
       const label = truncate(
-        auth.first_name || auth.username || "User " + auth.user_id,
+        auth.first_name || auth.username || \`User \${auth.user_id}\`,
         60
       );
-      keyboard.text("🎵 " + label, "np:" + chatId + ":" + auth.user_id).row();
+      keyboard.text(\`🎵 \${label}\`, \`np:\${chatId}:\${auth.user_id}\`).row();
     }
     backButton(keyboard);
 
@@ -274,7 +269,7 @@ export function createBot(token: string): Bot<MyContext> {
     );
   });
 
-  bot.callbackQuery(/^lyric:(\d+)$/, async (ctx) => {
+  bot.callbackQuery(/^lyric:(\\d+)$/, async (ctx) => {
     const songId = Number(ctx.match[1]);
     try {
       await ctx.answerCallbackQuery({ text: "Đang lấy lời bài hát…" });
@@ -290,7 +285,7 @@ export function createBot(token: string): Bot<MyContext> {
       }
 
       const lyrics = await getLyrics(song);
-      const header = "🎵 <b>" + escapeHtml(song.title) + "</b>\n👤 " + escapeHtml(song.artist) + "\n🔗 <a href=\"" + song.url + "\">Genius</a>\n\n";
+      const header = \`🎵 <b>\${escapeHtml(song.title)}</b>\n👤 \${escapeHtml(song.artist)}\n🔗 <a href="\${song.url}">Genius</a>\n\n\`;
 
       const chunks = splitMessage(header, lyrics);
       for (const chunk of chunks) {
@@ -307,13 +302,13 @@ export function createBot(token: string): Bot<MyContext> {
     } catch (err) {
       console.error("[callback] lỗi khi lấy lyric:", err);
       await ctx.reply(
-        "⚠️ Không lấy được lời bài hát: " + escapeHtml(String((err as Error).message)),
+        \`⚠️ Không lấy được lời bài hát: \${escapeHtml(String((err as Error).message))}\`,
         { parse_mode: "HTML", reply_markup: backButton(new InlineKeyboard()) }
       );
     }
   });
 
-  bot.callbackQuery(/^np:(-?\d+):(\d+)$/, async (ctx) => {
+  bot.callbackQuery(/^np:(-?\\d+):(\\d+)$/, async (ctx) => {
     const chatId = Number(ctx.match[1]);
     const userId = Number(ctx.match[2]);
 
@@ -346,7 +341,7 @@ export function createBot(token: string): Bot<MyContext> {
       const playing = await getCurrentlyPlaying(token);
       if (!playing) {
         await ctx.reply(
-          "🎵 <b>" + escapeHtml(auth.first_name || auth.username || "Bạn bè") + "</b> hiện không phát nhạc nào trên Spotify.",
+          \`🎵 <b>\${escapeHtml(auth.first_name || auth.username || "Bạn bè")}</b> hiện không phát nhạc nào trên Spotify.\`,
           { parse_mode: "HTML", reply_markup: backButton(new InlineKeyboard()) }
         );
         return;
@@ -354,13 +349,13 @@ export function createBot(token: string): Bot<MyContext> {
 
       const status = playing.isPlaying ? "▶️ Đang phát" : "⏸️ Tạm dừng";
       const text = [
-        "🎵 <b>" + escapeHtml(auth.first_name || auth.username || "Bạn bè") + "</b>",
+        \`🎵 <b>\${escapeHtml(auth.first_name || auth.username || "Bạn bè")}</b>\`,
         status,
-        "\n🎵 <b>" + escapeHtml(playing.trackName) + "</b>",
-        "👤 " + escapeHtml(playing.artistName),
-        playing.albumName ? "💿 " + escapeHtml(playing.albumName) : "",
+        \`\n🎵 <b>\${escapeHtml(playing.trackName)}</b>\`,
+        \`👤 \${escapeHtml(playing.artistName)}\`,
+        playing.albumName ? \`💿 \${escapeHtml(playing.albumName)}\` : "",
         playing.trackUrl
-          ? '🔗 <a href="' + playing.trackUrl + '">Mở trên Spotify</a>'
+          ? \`🔗 <a href="\${playing.trackUrl}">Mở trên Spotify</a>\`
           : "",
       ]
         .filter(Boolean)
@@ -379,7 +374,7 @@ export function createBot(token: string): Bot<MyContext> {
         "🔙 Quay lại danh sách?",
         {
           reply_markup: new InlineKeyboard()
-            .text("🔙 Quay lại", "npback:" + chatId)
+            .text("🔙 Quay lại", \`npback:\${chatId}\`)
             .text("🏠 Menu", "menu:main")
             .row(),
         }
@@ -400,13 +395,13 @@ export function createBot(token: string): Bot<MyContext> {
 
       const is403 = msg.includes("403");
       await ctx.reply(
-        is403 ? hint403 : "⚠️ Không lấy được thông tin: " + escapeHtml(msg),
+        is403 ? hint403 : \`⚠️ Không lấy được thông tin: \${escapeHtml(msg)}\`,
         { parse_mode: "HTML", reply_markup: backButton(new InlineKeyboard()) }
       );
     }
   });
 
-  bot.callbackQuery(/^npback:(-?\d+)$/, async (ctx) => {
+  bot.callbackQuery(/^npback:(-?\\d+)$/, async (ctx) => {
     try {
       await ctx.answerCallbackQuery({ text: "Đang quay lại…" });
     } catch {
@@ -426,10 +421,10 @@ export function createBot(token: string): Bot<MyContext> {
     const keyboard = new InlineKeyboard();
     for (const auth of users) {
       const label = truncate(
-        auth.first_name || auth.username || "User " + auth.user_id,
+        auth.first_name || auth.username || \`User \${auth.user_id}\`,
         60
       );
-      keyboard.text("🎵 " + label, "np:" + chatId + ":" + auth.user_id).row();
+      keyboard.text(\`🎵 \${label}\`, \`np:\${chatId}:\${auth.user_id}\`).row();
     }
     backButton(keyboard);
 
@@ -473,20 +468,20 @@ export function createBot(token: string): Bot<MyContext> {
 
     const existing = getSpotifyAuth(chatId, userId);
     if (existing) {
-      const name = existing.first_name || existing.username || "User " + userId;
+      const name = existing.first_name || existing.username || \`User \${userId}\`;
       const keyboard = new InlineKeyboard()
-        .text("🔓 Ngắt kết nối", "spotify:logout:" + chatId + ":" + userId)
+        .text("🔓 Ngắt kết nối", \`spotify:logout:\${chatId}:\${userId}\`)
         .row()
         .text("🔙 Quay lại menu", "menu:main");
       await ctx.reply(
-        "✅ <b>Đã kết nối Spotify</b>\n\n👤 " + escapeHtml(name) + "\n\n" +
+        \`✅ <b>Đã kết nối Spotify</b>\n\n👤 \${escapeHtml(name)}\n\n\` +
           "Nhấn nút bên dưới nếu muốn ngắt kết nối:",
         { parse_mode: "HTML", reply_markup: keyboard }
       );
       return;
     }
 
-    const state = chatId + ":" + userId + ":" + Math.random().toString(36).slice(2);
+    const state = \`\${chatId}:\${userId}:\${Math.random().toString(36).slice(2)}\`;
     try {
       const url = generateSpotifyAuthUrl(state);
       const keyboard = new InlineKeyboard().url("🔗 Kết nối Spotify", url);
@@ -504,7 +499,7 @@ export function createBot(token: string): Bot<MyContext> {
         );
       } else {
         await ctx.reply(
-          "⚠️ " + escapeHtml(msg),
+          \`⚠️ \${escapeHtml(msg)}\`,
           { parse_mode: "HTML", reply_markup: backButton(new InlineKeyboard()) }
         );
       }
@@ -534,10 +529,10 @@ export function createBot(token: string): Bot<MyContext> {
     const keyboard = new InlineKeyboard();
     for (const auth of users) {
       const label = truncate(
-        auth.first_name || auth.username || "User " + auth.user_id,
+        auth.first_name || auth.username || \`User \${auth.user_id}\`,
         60
       );
-      keyboard.text("🎵 " + label, "np:" + chatId + ":" + auth.user_id).row();
+      keyboard.text(\`🎵 \${label}\`, \`np:\${chatId}:\${auth.user_id}\`).row();
     }
     backButton(keyboard);
 
@@ -565,7 +560,7 @@ export function createBot(token: string): Bot<MyContext> {
     );
   });
 
-  bot.callbackQuery(/^spotify:logout:(-?\d+):(\d+)$/, async (ctx) => {
+  bot.callbackQuery(/^spotify:logout:(-?\\d+):(\\d+)$/, async (ctx) => {
     try {
       await ctx.answerCallbackQuery({ text: "Đang ngắt kết nối…" });
     } catch {
@@ -605,8 +600,8 @@ function truncate(text: string, max: number): string {
 
 function formatLine(line: string): string {
   const escaped = escapeHtml(line);
-  if (/^\[.*\]$/.test(line.trim())) {
-    return "<b><i>" + escaped + "</i></b>";
+  if (/^\\[.*\\]$/.test(line.trim())) {
+    return \`<b><i>\${escaped}</i></b>\`;
   }
   return escaped;
 }
@@ -630,3 +625,7 @@ function splitMessage(header: string, lyrics: string): string[] {
   if (current.trim()) chunks.push(current.trimEnd());
   return chunks;
 }
+`;
+
+fs.writeFileSync('g:/lyrics_bot/src/bot.ts', botTs, 'utf8');
+console.log('done');
