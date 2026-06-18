@@ -74,19 +74,42 @@ export async function getSong(id: number): Promise<SongHit | null> {
 }
 
 /**
- * Scrape lyric từ trang bài hát Genius.
- * Genius không cung cấp lyric qua API nên phải parse HTML.
+ * Header giả lập trình duyệt thật để Genius không trả 403 (hay gặp khi gọi
+ * từ IP datacenter như Vercel/AWS).
+ */
+const BROWSER_HEADERS: Record<string, string> = {
+  "User-Agent": USER_AGENT,
+  Accept:
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9,vi;q=0.8",
+  "Cache-Control": "no-cache",
+  Pragma: "no-cache",
+  "Sec-Ch-Ua": '"Chromium";v="124", "Not-A.Brand";v="99"',
+  "Sec-Ch-Ua-Mobile": "?0",
+  "Sec-Ch-Ua-Platform": '"Windows"',
+  "Sec-Fetch-Dest": "document",
+  "Sec-Fetch-Mode": "navigate",
+  "Sec-Fetch-Site": "none",
+  "Sec-Fetch-User": "?1",
+  "Upgrade-Insecure-Requests": "1",
+  Referer: "https://genius.com/",
+};
+
+/**
+ * Scrape lyric từ trang bài hát Genius (API không cung cấp full lyrics).
  */
 export async function fetchLyrics(songUrl: string): Promise<string> {
-  const res = await fetch(songUrl, {
-    headers: {
-      "User-Agent": USER_AGENT,
-      Accept: "text/html",
-    },
-  });
+  let res: Response | undefined;
+  // Thử lại tối đa 3 lần khi gặp 403/429 (Genius chặn tạm thời).
+  for (let attempt = 0; attempt < 3; attempt++) {
+    res = await fetch(songUrl, { headers: BROWSER_HEADERS, redirect: "follow" });
+    if (res.ok) break;
+    if (res.status !== 403 && res.status !== 429) break;
+    await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+  }
 
-  if (!res.ok) {
-    throw new Error(`Không tải được trang lyric: ${res.status}`);
+  if (!res || !res.ok) {
+    throw new Error(`Không tải được trang lyric: ${res?.status ?? "?"}`);
   }
 
   const html = await res.text();
