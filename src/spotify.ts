@@ -104,7 +104,11 @@ export async function getCurrentlyPlaying(
   });
 
   if (res.status === 204) return null; // nothing playing
-  if (!res.ok) throw new Error(`Spotify API error: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text();
+    console.error(`[Spotify API] currently-playing error ${res.status}: ${body.slice(0, 500)}`);
+    throw new Error(`Spotify API error: ${res.status} — ${body.slice(0, 200)}`);
+  }
 
   const data = (await res.json()) as any;
 

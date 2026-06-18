@@ -13,24 +13,49 @@ export function createBot(token: string): Bot {
   const bot = new Bot(token);
 
   bot.command("start", async (ctx) => {
+    const keyboard = new InlineKeyboard()
+      .text("🎵 Tìm lời bài hát", "menu:lyric")
+      .row()
+      .text("🎧 Kết nối Spotify", "menu:spotify")
+      .row()
+      .text("▶️ Bạn bè đang phát gì", "menu:np")
+      .row()
+      .text("❓ Trợ giúp", "menu:help");
+
     await ctx.reply(
-      "👋 Chào bạn!\n\n<b>Lệnh có sẵn:</b>\n" +
-        "• <code>/lyric &lt;tên bài&gt;</code> — tìm lời bài hát trên Genius\n" +
-        "• <code>/spotify</code> — kết nối tài khoản Spotify\n" +
-        "• <code>/nowplaying</code> — xem bạn bè đang phát gì 🎧\n\n" +
-        "Ví dụ: <code>/lyric shape of you</code>",
-      { parse_mode: "HTML" }
+      "👋 <b>Chào mừng đến với Lyrics Bot!</b>\n\n" +
+        "🎵 Tìm lời bài hát trên Genius\n" +
+        "🎧 Chia sẻ nhạc đang phát từ Spotify\n\n" +
+        "Chọn chức năng bên dưới hoặc gõ <code>/menu</code> để mở lại menu:",
+      { parse_mode: "HTML", reply_markup: keyboard }
     );
   });
 
   bot.command("help", async (ctx) => {
     await ctx.reply(
-      "<b>Hướng dẫn sử dụng:</b>\n\n" +
-        "<code>/lyric &lt;tên bài&gt;</code> — Tìm lời bài hát trên Genius\n" +
-        "<code>/spotify</code> — Kết nối Spotify để bạn bè xem bạn đang nghe gì\n" +
-        "<code>/nowplaying</code> — Xem bạn bè trong nhóm đang phát gì trên Spotify\n\n" +
-        "Bot cũng hoạt động trong nhóm chat. Hãy thêm bot vào nhóm và dùng lệnh!",
+      "<b>📖 Hướng dẫn sử dụng</b>\n\n" +
+        "<b>/lyric &lt;tên bài&gt;</b> — Tìm lời bài hát trên Genius\n" +
+        "<b>/spotify</b> — Kết nối Spotify (gửi riêng tư)\n" +
+        "<b>/nowplaying</b> — Xem bạn bè đang phát gì (gửi riêng tư)\n" +
+        "<b>/menu</b> — Mở menu tương tác\n\n" +
+        "<i>Bot cũng hoạt động trong nhóm chat. Các luồng nhạy cảm (Spotify) sẽ tự động gửi riêng tư để tránh làm phiền nhóm.</i>",
       { parse_mode: "HTML" }
+    );
+  });
+
+  bot.command("menu", async (ctx) => {
+    const keyboard = new InlineKeyboard()
+      .text("🎵 Tìm lời bài hát", "menu:lyric")
+      .row()
+      .text("🎧 Kết nối Spotify", "menu:spotify")
+      .row()
+      .text("▶️ Bạn bè đang phát gì", "menu:np")
+      .row()
+      .text("❓ Trợ giúp", "menu:help");
+
+    await ctx.reply(
+      "<b>🎼 Menu chính</b>\n\nChọn chức năng bạn muốn dùng:",
+      { parse_mode: "HTML", reply_markup: keyboard }
     );
   });
 
@@ -91,22 +116,40 @@ export function createBot(token: string): Bot {
     try {
       const url = generateSpotifyAuthUrl(state);
       const keyboard = new InlineKeyboard().url("🔗 Kết nối Spotify", url);
-      await ctx.reply(
-        "Nhấn nút bên dưới để xác thực Spotify. Sau khi hoàn tất, bạn bè trong nhóm có thể xem bạn đang phát gì! 🎧",
-        { reply_markup: keyboard }
+
+      // Luôn gửi riêng tư để tránh làm phiền nhóm
+      await ctx.api.sendMessage(
+        userId,
+        "👋 <b>Kết nối Spotify</b>\n\nNhấn nút bên dưới để xác thực. Sau khi hoàn tất, bạn bè có thể xem bạn đang phát gì! 🎧",
+        { parse_mode: "HTML", reply_markup: keyboard }
       );
+
+      // Nếu lệnh gọi trong nhóm, thông báo nhẹ trong nhóm
+      if (ctx.chat.type !== "private") {
+        await ctx.reply(
+          "✅ Đã gửi link kết nối Spotify qua tin nhắn riêng tư!",
+          { parse_mode: "HTML" }
+        );
+      }
     } catch (err) {
-      await ctx.reply(
-        `⚠️ ${escapeHtml(String((err as Error).message))}`,
-        { parse_mode: "HTML" }
-      );
+      const msg = String((err as Error).message);
+      if (msg.includes("bot can't initiate conversation")) {
+        await ctx.reply(
+          "⚠️ Tôi chưa thể nhắn riêng cho bạn. Hãy mở chat riêng với bot và gõ <code>/start</code>, sau đó thử lại <code>/spotify</code>.",
+          { parse_mode: "HTML" }
+        );
+      } else {
+        await ctx.reply(`⚠️ ${escapeHtml(msg)}`, { parse_mode: "HTML" });
+      }
     }
   });
 
   bot.command("nowplaying", async (ctx) => {
+    const userId = ctx.from?.id;
     const chatId = ctx.chat.id;
-    const users = getSpotifyUsers(chatId);
+    if (!userId) return;
 
+    const users = getSpotifyUsers(chatId);
     if (!users || users.size === 0) {
       await ctx.reply(
         "Chưa có ai kết nối Spotify ở đây.\nGõ <code>/spotify</code> để kết nối! 🎧",
@@ -124,9 +167,30 @@ export function createBot(token: string): Bot {
       keyboard.text(`🎵 ${label}`, `np:${chatId}:${uid}`).row();
     }
 
-    await ctx.reply("Chọn bạn bè để xem đang phát gì trên Spotify:", {
-      reply_markup: keyboard,
-    });
+    try {
+      await ctx.api.sendMessage(
+        userId,
+        "🎧 <b>Bạn bè đang phát gì?</b>\n\nChọn người bạn muốn xem:",
+        { parse_mode: "HTML", reply_markup: keyboard }
+      );
+
+      if (ctx.chat.type !== "private") {
+        await ctx.reply(
+          "✅ Đã gửi danh sách qua tin nhắn riêng tư!",
+          { parse_mode: "HTML" }
+        );
+      }
+    } catch (err) {
+      const msg = String((err as Error).message);
+      if (msg.includes("bot can't initiate conversation")) {
+        await ctx.reply(
+          "⚠️ Tôi chưa thể nhắn riêng cho bạn. Hãy mở chat riêng với bot và gõ <code>/start</code>, sau đó thử lại <code>/nowplaying</code>.",
+          { parse_mode: "HTML" }
+        );
+      } else {
+        await ctx.reply(`⚠️ ${escapeHtml(msg)}`, { parse_mode: "HTML" });
+      }
+    }
   });
 
   bot.callbackQuery(/^lyric:(\d+)$/, async (ctx) => {
@@ -166,6 +230,7 @@ export function createBot(token: string): Bot {
   bot.callbackQuery(/^np:(-?\d+):(\d+)$/, async (ctx) => {
     const chatId = Number(ctx.match[1]);
     const userId = Number(ctx.match[2]);
+    const callerId = ctx.from?.id;
 
     try {
       await ctx.answerCallbackQuery({ text: "Đang kiểm tra..." });
@@ -175,9 +240,12 @@ export function createBot(token: string): Bot {
 
     const auth = getSpotifyUser(chatId, userId);
     if (!auth) {
-      await ctx.reply(
-        "Người dùng này chưa kết nối Spotify hoặc đã ngắt kết nối."
-      );
+      if (callerId) {
+        await ctx.api.sendMessage(
+          callerId,
+          "Người dùng này chưa kết nối Spotify hoặc đã ngắt kết nối."
+        );
+      }
       return;
     }
 
@@ -193,17 +261,21 @@ export function createBot(token: string): Bot {
 
       const playing = await getCurrentlyPlaying(token);
       if (!playing) {
-        await ctx.reply(
-          `🎵 <b>${escapeHtml(auth.firstName || auth.username || "Bạn bè")}</b> hiện không phát nhạc nào trên Spotify.`,
-          { parse_mode: "HTML" }
-        );
+        if (callerId) {
+          await ctx.api.sendMessage(
+            callerId,
+            `🎵 <b>${escapeHtml(auth.firstName || auth.username || "Bạn bè")}</b> hiện không phát nhạc nào trên Spotify.`,
+            { parse_mode: "HTML" }
+          );
+        }
         return;
       }
 
       const status = playing.isPlaying ? "▶️ Đang phát" : "⏸️ Tạm dừng";
       const text = [
+        `🎵 <b>${escapeHtml(auth.firstName || auth.username || "Bạn bè")}</b>`,
         status,
-        `🎵 <b>${escapeHtml(playing.trackName)}</b>`,
+        `\n🎵 <b>${escapeHtml(playing.trackName)}</b>`,
         `👤 ${escapeHtml(playing.artistName)}`,
         playing.albumName ? `💿 ${escapeHtml(playing.albumName)}` : "",
         playing.trackUrl
@@ -213,21 +285,150 @@ export function createBot(token: string): Bot {
         .filter(Boolean)
         .join("\n");
 
-      if (playing.imageUrl) {
-        await ctx.replyWithPhoto(playing.imageUrl, {
-          caption: text,
-          parse_mode: "HTML",
-        });
-      } else {
-        await ctx.reply(text, { parse_mode: "HTML" });
+      if (callerId) {
+        if (playing.imageUrl) {
+          await ctx.api.sendPhoto(callerId, playing.imageUrl, {
+            caption: text,
+            parse_mode: "HTML",
+          });
+        } else {
+          await ctx.api.sendMessage(callerId, text, { parse_mode: "HTML" });
+        }
       }
     } catch (err) {
+      const msg = String((err as Error).message);
       console.error("[nowplaying] lỗi:", err);
+
+      const hint403 =
+        "⚠️ <b>Spotify chặn truy cập (403)</b>\n\n" +
+        "Tài khoản này chưa được thêm vào <b>User Management</b> của Spotify App.\n\n" +
+        "<b>Cách sửa:</b>\n" +
+        "1. Chủ app vào https://developer.spotify.com/dashboard\n" +
+        "2. Chọn app → Settings → User Management\n" +
+        "3. Thêm email Spotify của người bị lỗi vào danh sách\n" +
+        "4. Người đó nhận email → Accept invitation\n" +
+        "5. Thử lại <code>/nowplaying</code>";
+
+      const is403 = msg.includes("403");
+      if (callerId) {
+        await ctx.api.sendMessage(
+          callerId,
+          is403 ? hint403 : `⚠️ Không lấy được thông tin: ${escapeHtml(msg)}`,
+          { parse_mode: "HTML" }
+        );
+      }
+    }
+  });
+
+  /* ── Menu callbacks ── */
+  bot.callbackQuery("menu:lyric", async (ctx) => {
+    try {
+      await ctx.answerCallbackQuery({ text: "Gõ /lyric <tên bài> để tìm" });
+    } catch {
+      /* ignore */
+    }
+    await ctx.reply(
+      "🎵 <b>Tìm lời bài hát</b>\n\nGõ <code>/lyric &lt;tên bài hát&gt;</code> để tìm.\nVí dụ: <code>/lyric shape of you</code>",
+      { parse_mode: "HTML" }
+    );
+  });
+
+  bot.callbackQuery("menu:spotify", async (ctx) => {
+    try {
+      await ctx.answerCallbackQuery({ text: "Đang mở kết nối Spotify..." });
+    } catch {
+      /* ignore */
+    }
+
+    const userId = ctx.from?.id;
+    const chatId = ctx.chat?.id;
+    if (!userId || !chatId) return;
+
+    const state = `${chatId}:${userId}:${Math.random().toString(36).slice(2)}`;
+    try {
+      const url = generateSpotifyAuthUrl(state);
+      const keyboard = new InlineKeyboard().url("🔗 Kết nối Spotify", url);
+      await ctx.api.sendMessage(
+        userId,
+        "👋 <b>Kết nối Spotify</b>\n\nNhấn nút bên dưới để xác thực. Sau khi hoàn tất, bạn bè có thể xem bạn đang phát gì! 🎧",
+        { parse_mode: "HTML", reply_markup: keyboard }
+      );
+    } catch (err) {
+      const msg = String((err as Error).message);
+      if (msg.includes("bot can't initiate conversation")) {
+        await ctx.reply(
+          "⚠️ Hãy mở chat riêng với bot và gõ <code>/start</code> trước, sau đó quay lại đây.",
+          { parse_mode: "HTML" }
+        );
+      } else {
+        await ctx.reply(`⚠️ ${escapeHtml(msg)}`, { parse_mode: "HTML" });
+      }
+    }
+  });
+
+  bot.callbackQuery("menu:np", async (ctx) => {
+    try {
+      await ctx.answerCallbackQuery({ text: "Đang mở danh sách..." });
+    } catch {
+      /* ignore */
+    }
+
+    const userId = ctx.from?.id;
+    const chatId = ctx.chat?.id;
+    if (!userId || !chatId) return;
+
+    const users = getSpotifyUsers(chatId);
+    if (!users || users.size === 0) {
       await ctx.reply(
-        `⚠️ Không lấy được thông tin: ${escapeHtml(String((err as Error).message))}`,
+        "Chưa có ai kết nối Spotify ở đây.\nGõ <code>/spotify</code> để kết nối! 🎧",
         { parse_mode: "HTML" }
       );
+      return;
     }
+
+    const keyboard = new InlineKeyboard();
+    for (const [uid, auth] of users) {
+      const label = truncate(
+        auth.firstName || auth.username || `User ${uid}`,
+        60
+      );
+      keyboard.text(`🎵 ${label}`, `np:${chatId}:${uid}`).row();
+    }
+
+    try {
+      await ctx.api.sendMessage(
+        userId,
+        "🎧 <b>Bạn bè đang phát gì?</b>\n\nChọn người bạn muốn xem:",
+        { parse_mode: "HTML", reply_markup: keyboard }
+      );
+    } catch (err) {
+      const msg = String((err as Error).message);
+      if (msg.includes("bot can't initiate conversation")) {
+        await ctx.reply(
+          "⚠️ Hãy mở chat riêng với bot và gõ <code>/start</code> trước, sau đó quay lại đây.",
+          { parse_mode: "HTML" }
+        );
+      } else {
+        await ctx.reply(`⚠️ ${escapeHtml(msg)}`, { parse_mode: "HTML" });
+      }
+    }
+  });
+
+  bot.callbackQuery("menu:help", async (ctx) => {
+    try {
+      await ctx.answerCallbackQuery({ text: "Đang mở trợ giúp..." });
+    } catch {
+      /* ignore */
+    }
+    await ctx.reply(
+      "<b>📖 Hướng dẫn sử dụng</b>\n\n" +
+        "<b>/lyric &lt;tên bài&gt;</b> — Tìm lời bài hát trên Genius\n" +
+        "<b>/spotify</b> — Kết nối Spotify (gửi riêng tư)\n" +
+        "<b>/nowplaying</b> — Xem bạn bè đang phát gì (gửi riêng tư)\n" +
+        "<b>/menu</b> — Mở menu tương tác\n\n" +
+        "<i>Các luồng nhạy cảm (Spotify) tự động gửi riêng tư để tránh làm phiền nhóm.</i>",
+      { parse_mode: "HTML" }
+    );
   });
 
   return bot;
