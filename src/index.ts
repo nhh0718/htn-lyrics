@@ -14,7 +14,10 @@ if (!token) {
 const bot = createBot(token);
 bot.catch((err) => console.error("Bot error:", err));
 
-const secret = process.env.WEBHOOK_SECRET || "telegram";
+// Telegram secret_token chỉ cho phép A-Z a-z 0-9 _ - (1..256 ký tự).
+// Render có thể sinh WEBHOOK_SECRET dạng base64 (chứa = / +) -> phải làm sạch.
+const rawSecret = process.env.WEBHOOK_SECRET || "telegram";
+const secret = rawSecret.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 256) || "telegram";
 const webhookPath = `/webhook/${secret}`;
 const handleUpdate = webhookCallback(bot, "http", { secretToken: secret });
 
@@ -43,16 +46,21 @@ server.listen(PORT, async () => {
 
   // Tự đăng ký webhook khi khởi động nếu biết URL công khai.
   const base = process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL;
-  if (base) {
-    const url = `${base.replace(/\/$/, "")}${webhookPath}`;
+  if (!base) {
+    console.warn(
+      "Chưa có PUBLIC_URL / RENDER_EXTERNAL_URL -> chưa tự set webhook."
+    );
+    return;
+  }
+  const url = `${base.replace(/\/$/, "")}${webhookPath}`;
+  try {
     await bot.api.setWebhook(url, {
       drop_pending_updates: true,
       secret_token: secret,
     });
     console.log("Đã set webhook:", url);
-  } else {
-    console.warn(
-      "Chưa có PUBLIC_URL / RENDER_EXTERNAL_URL -> chưa tự set webhook."
-    );
+  } catch (err) {
+    // Không sập server nếu set webhook lỗi; vẫn giữ HTTP server sống để debug.
+    console.error("setWebhook lỗi:", err);
   }
 });
