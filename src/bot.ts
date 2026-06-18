@@ -70,7 +70,13 @@ export function createBot(token: string): Bot {
 
   bot.callbackQuery(/^lyric:(\d+)$/, async (ctx) => {
     const songId = Number(ctx.match[1]);
-    await ctx.answerCallbackQuery({ text: "Đang lấy lời bài hát..." });
+    // Toast "đang tải" — nếu update là bản retry cũ thì query đã hết hạn,
+    // bỏ qua lỗi để không làm crash handler.
+    try {
+      await ctx.answerCallbackQuery({ text: "Đang lấy lời bài hát..." });
+    } catch {
+      // query quá cũ / đã trả lời -> không sao
+    }
 
     try {
       const song = await getSong(songId);
@@ -79,8 +85,8 @@ export function createBot(token: string): Bot {
         return;
       }
 
-      const { text: lyrics, source } = await getLyrics(song);
-      const header = `🎵 <b>${escapeHtml(song.title)}</b>\n👤 ${escapeHtml(song.artist)}\n🔗 <a href="${song.url}">Genius</a> · nguồn lời: ${source}\n\n`;
+      const lyrics = await getLyrics(song);
+      const header = `🎵 <b>${escapeHtml(song.title)}</b>\n👤 ${escapeHtml(song.artist)}\n🔗 <a href="${song.url}">Genius</a>\n\n`;
 
       const chunks = splitMessage(header, lyrics);
       for (const chunk of chunks) {
@@ -90,6 +96,7 @@ export function createBot(token: string): Bot {
         });
       }
     } catch (err) {
+      console.error("[callback] lỗi khi lấy lyric:", err);
       await ctx.reply(
         `⚠️ Không lấy được lời bài hát: ${escapeHtml(String((err as Error).message))}`,
         { parse_mode: "HTML" }

@@ -4,6 +4,24 @@ const GENIUS_API = "https://api.genius.com";
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
+/**
+ * fetch có timeout để không bao giờ treo (tránh webhook serverless chạy quá lâu
+ * khiến Telegram gửi lại update -> lỗi "query is too old").
+ */
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = 8000
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface SongHit {
   id: number;
   title: string;
@@ -95,67 +113,16 @@ const BROWSER_HEADERS: Record<string, string> = {
   Referer: "https://genius.com/",
 };
 
-export interface LyricsResult {
-  text: string;
-  source: "LRCLIB" | "Genius";
-}
-
 /**
- * Lấy lyric cho 1 bài hát theo nhiều nguồn (chống việc Genius chặn IP serverless):
- *  1. LRCLIB — API miễn phí, không chặn IP, ổn định nhất cho serverless.
- *  2. Genius scrape — fallback (có thể bị 403 trên Vercel).
+ * Lấy lyric cho 1 bài hát từ Genius (scrape trang web).
  */
-export async function getLyrics(song: SongHit): Promise<LyricsResult> {
+export async function getLyrics(song: SongHit): Promise<string> {
   console.log(`[lyrics] bắt đầu: "${song.title}" - ${song.artist} (${song.url})`);
-
-  const fromLrclib = await fetchFromLrclib(song.title, song.artist);
-  if (fromLrclib) {
-    console.log("[lyrics] dùng nguồn LRCLIB");
-    return { text: fromLrclib, source: "LRCLIB" };
-  }
-
-  console.log("[lyrics] LRCLIB không có -> thử Genius");
-  const fromGenius = await fetchFromGenius(song.url);
-  return { text: fromGenius, source: "Genius" };
+  return fetchFromGenius(song.url);
 }
 
 /**
- * Nguồn 1: LRCLIB (https://lrclib.net) — trả lyric thường (plain).
- * Không cần API key. Trả null nếu không tìm thấy.
- */
-async function fetchFromLrclib(
-  title: string,
-  artist: string
-): Promise<string | null> {
-  try {
-    const url = `https://lrclib.net/api/search?q=${encodeURIComponent(
-      `${title} ${artist}`
-    )}`;
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": "lyrics-bot (https://github.com/nhh0718/htn-lyrics)",
-      },
-    });
-    console.log(`[LRCLIB] status=${res.status}`);
-    if (!res.ok) return null;
-
-    const items = (await res.json()) as Array<{
-      plainLyrics?: string | null;
-      syncedLyrics?: string | null;
-    }>;
-    console.log(`[LRCLIB] số kết quả=${items.length}`);
-
-    const hit = items.find((i) => i.plainLyrics && i.plainLyrics.trim());
-    if (!hit?.plainLyrics) return null;
-    return cleanLyrics(hit.plainLyrics);
-  } catch (err) {
-    console.error("[LRCLIB] lỗi:", err);
-    return null;
-  }
-}
-
-/**
- * Nguồn 2: Scrape trang Genius. Thử trực tiếp trước; nếu bị chặn (403) thì
+ * Scrape trang Genius. Thử trực tiếp trước; nếu bị chặn (403) thì
  * thử lại qua proxy public (allorigins) để fetch từ IP không bị chặn.
  */
 async function fetchFromGenius(songUrl: string): Promise<string> {
@@ -189,7 +156,7 @@ async function fetchFromGenius(songUrl: string): Promise<string> {
  */
 async function fetchGeniusHtml(songUrl: string): Promise<string> {
   try {
-    const res = await fetch(songUrl, {
+    const res = await fetchWithTimeout(songUrl, {
       headers: BROWSER_HEADERS,
       redirect: "follow",
     });
@@ -206,9 +173,11 @@ async function fetchGeniusHtml(songUrl: string): Promise<string> {
   const proxied = `https://api.allorigins.win/raw?url=${encodeURIComponent(
     songUrl
   )}`;
-  const res = await fetch(proxied, {
-    headers: { "User-Agent": USER_AGENT },
-  });
+  const res = await fetchWithTimeout(
+    proxied,
+    { headers: { "User-Agent": USER_AGENT } },
+    12000
+  );
   console.log(`[Genius proxy] status=${res.status}`);
   if (!res.ok) {
     throw new Error(`Không tải được trang lyric: ${res.status}`);
