@@ -169,25 +169,40 @@ async function fetchGeniusHtml(songUrl: string): Promise<string> {
     console.error("[Genius direct] lỗi mạng:", err);
   }
 
-  // Fallback: Jina Reader (r.jina.ai) render trang từ IP không bị Cloudflare
-  // chặn, trả về HTML để parse như bình thường.
-  console.log("[Genius] thử qua r.jina.ai...");
-  const proxied = `https://r.jina.ai/${songUrl}`;
-  const res = await fetchWithTimeout(
-    proxied,
-    {
-      headers: {
-        "User-Agent": USER_AGENT,
-        "X-Return-Format": "html",
-      },
-    },
-    25000
-  );
-  console.log(`[Genius proxy] status=${res.status}`);
-  if (!res.ok) {
-    throw new Error(`Không tải được trang lyric: ${res.status}`);
+  // Fallback 1: corsproxy.io
+  console.log("[Genius] thử qua corsproxy.io...");
+  const proxied1 = `https://corsproxy.io/?${encodeURIComponent(songUrl)}`;
+  try {
+    const res1 = await fetchWithTimeout(
+      proxied1,
+      { headers: { "User-Agent": USER_AGENT } },
+      25000
+    );
+    console.log(`[Genius corsproxy] status=${res1.status}`);
+    if (res1.ok) return await res1.text();
+  } catch (err) {
+    console.error("[Genius corsproxy] lỗi:", err);
   }
-  return await res.text();
+
+  // Fallback 2: thingproxy
+  console.log("[Genius] thử qua thingproxy...");
+  const proxied2 = `https://thingproxy.freeboard.io/html/${songUrl}`;
+  try {
+    const res2 = await fetchWithTimeout(
+      proxied2,
+      { headers: { "User-Agent": USER_AGENT } },
+      25000
+    );
+    console.log(`[Genius thingproxy] status=${res2.status}`);
+    if (res2.ok) return await res2.text();
+  } catch (err) {
+    console.error("[Genius thingproxy] lỗi:", err);
+  }
+
+  throw new Error(
+    "Genius chặn IP datacenter (403) và tất cả proxy đều thất bại. " +
+    "Hãy thử lại sau hoặc dùng bài khác."
+  );
 }
 
 /**
