@@ -169,14 +169,19 @@ async function fetchGeniusHtml(songUrl: string): Promise<string> {
     console.error("[Genius direct] lỗi mạng:", err);
   }
 
-  console.log("[Genius] thử qua proxy allorigins...");
-  const proxied = `https://api.allorigins.win/raw?url=${encodeURIComponent(
-    songUrl
-  )}`;
+  // Fallback: Jina Reader (r.jina.ai) render trang từ IP không bị Cloudflare
+  // chặn, trả về HTML để parse như bình thường.
+  console.log("[Genius] thử qua r.jina.ai...");
+  const proxied = `https://r.jina.ai/${songUrl}`;
   const res = await fetchWithTimeout(
     proxied,
-    { headers: { "User-Agent": USER_AGENT } },
-    12000
+    {
+      headers: {
+        "User-Agent": USER_AGENT,
+        "X-Return-Format": "html",
+      },
+    },
+    25000
   );
   console.log(`[Genius proxy] status=${res.status}`);
   if (!res.ok) {
