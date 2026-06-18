@@ -12,3 +12,11 @@ services:
         sync: false
       - key: WEBHOOK_SECRET
         generateValue: true
+      - key: PUBLIC_URL
+        sync: false
+      - key: SCRAPERAPI_KEY
+        sync: false
+      - key: SPOTIFY_CLIENT_ID
+        sync: false
+      - key: SPOTIFY_CLIENT_SECRET
+        sync: false
