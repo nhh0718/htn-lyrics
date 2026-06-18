@@ -106,9 +106,15 @@ export interface LyricsResult {
  *  2. Genius scrape — fallback (có thể bị 403 trên Vercel).
  */
 export async function getLyrics(song: SongHit): Promise<LyricsResult> {
-  const fromLrclib = await fetchFromLrclib(song.title, song.artist);
-  if (fromLrclib) return { text: fromLrclib, source: "LRCLIB" };
+  console.log(`[lyrics] bắt đầu: "${song.title}" - ${song.artist} (${song.url})`);
 
+  const fromLrclib = await fetchFromLrclib(song.title, song.artist);
+  if (fromLrclib) {
+    console.log("[lyrics] dùng nguồn LRCLIB");
+    return { text: fromLrclib, source: "LRCLIB" };
+  }
+
+  console.log("[lyrics] LRCLIB không có -> thử Genius");
   const fromGenius = await fetchFromGenius(song.url);
   return { text: fromGenius, source: "Genius" };
 }
@@ -130,17 +136,20 @@ async function fetchFromLrclib(
         "User-Agent": "lyrics-bot (https://github.com/nhh0718/htn-lyrics)",
       },
     });
+    console.log(`[LRCLIB] status=${res.status}`);
     if (!res.ok) return null;
 
     const items = (await res.json()) as Array<{
       plainLyrics?: string | null;
       syncedLyrics?: string | null;
     }>;
+    console.log(`[LRCLIB] số kết quả=${items.length}`);
 
     const hit = items.find((i) => i.plainLyrics && i.plainLyrics.trim());
     if (!hit?.plainLyrics) return null;
     return cleanLyrics(hit.plainLyrics);
-  } catch {
+  } catch (err) {
+    console.error("[LRCLIB] lỗi:", err);
     return null;
   }
 }
@@ -184,17 +193,23 @@ async function fetchGeniusHtml(songUrl: string): Promise<string> {
       headers: BROWSER_HEADERS,
       redirect: "follow",
     });
+    console.log(`[Genius direct] status=${res.status}, server=${res.headers.get("server") ?? "?"}, cf-ray=${res.headers.get("cf-ray") ?? "-"}`);
     if (res.ok) return await res.text();
-  } catch {
-    // bỏ qua, chuyển sang proxy
+    // Lưu một đoạn body để biết Cloudflare chặn hay lỗi gì.
+    const snippet = (await res.text()).slice(0, 300).replace(/\s+/g, " ");
+    console.warn(`[Genius direct] body đầu: ${snippet}`);
+  } catch (err) {
+    console.error("[Genius direct] lỗi mạng:", err);
   }
 
+  console.log("[Genius] thử qua proxy allorigins...");
   const proxied = `https://api.allorigins.win/raw?url=${encodeURIComponent(
     songUrl
   )}`;
   const res = await fetch(proxied, {
     headers: { "User-Agent": USER_AGENT },
   });
+  console.log(`[Genius proxy] status=${res.status}`);
   if (!res.ok) {
     throw new Error(`Không tải được trang lyric: ${res.status}`);
   }
