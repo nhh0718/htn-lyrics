@@ -1,0 +1,23 @@
+{
+  "name": "lyrics-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot tìm và trả về lyrics từ Genius.com, deploy serverless trên Vercel",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/dev.ts",
+    "set-webhook": "tsx scripts/set-webhook.ts",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "grammy": "^1.30.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
