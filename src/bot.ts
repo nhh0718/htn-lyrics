@@ -1,5 +1,5 @@
 import { Bot, InlineKeyboard } from "grammy";
-import { searchSongs, getSong, fetchLyrics } from "./genius.js";
+import { searchSongs, getSong, getLyrics } from "./genius.js";
 
 const TELEGRAM_MAX = 4096;
 
@@ -79,8 +79,8 @@ export function createBot(token: string): Bot {
         return;
       }
 
-      const lyrics = await fetchLyrics(song.url);
-      const header = `🎵 <b>${escapeHtml(song.title)}</b>\n👤 ${escapeHtml(song.artist)}\n🔗 <a href="${song.url}">Genius</a>\n\n`;
+      const { text: lyrics, source } = await getLyrics(song);
+      const header = `🎵 <b>${escapeHtml(song.title)}</b>\n👤 ${escapeHtml(song.artist)}\n🔗 <a href="${song.url}">Genius</a> · nguồn lời: ${source}\n\n`;
 
       const chunks = splitMessage(header, lyrics);
       for (const chunk of chunks) {

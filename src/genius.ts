@@ -95,31 +95,67 @@ const BROWSER_HEADERS: Record<string, string> = {
   Referer: "https://genius.com/",
 };
 
+export interface LyricsResult {
+  text: string;
+  source: "LRCLIB" | "Genius";
+}
+
 /**
- * Scrape lyric từ trang bài hát Genius (API không cung cấp full lyrics).
+ * Lấy lyric cho 1 bài hát theo nhiều nguồn (chống việc Genius chặn IP serverless):
+ *  1. LRCLIB — API miễn phí, không chặn IP, ổn định nhất cho serverless.
+ *  2. Genius scrape — fallback (có thể bị 403 trên Vercel).
  */
-export async function fetchLyrics(songUrl: string): Promise<string> {
-  let res: Response | undefined;
-  // Thử lại tối đa 3 lần khi gặp 403/429 (Genius chặn tạm thời).
-  for (let attempt = 0; attempt < 3; attempt++) {
-    res = await fetch(songUrl, { headers: BROWSER_HEADERS, redirect: "follow" });
-    if (res.ok) break;
-    if (res.status !== 403 && res.status !== 429) break;
-    await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
-  }
+export async function getLyrics(song: SongHit): Promise<LyricsResult> {
+  const fromLrclib = await fetchFromLrclib(song.title, song.artist);
+  if (fromLrclib) return { text: fromLrclib, source: "LRCLIB" };
 
-  if (!res || !res.ok) {
-    throw new Error(`Không tải được trang lyric: ${res?.status ?? "?"}`);
-  }
+  const fromGenius = await fetchFromGenius(song.url);
+  return { text: fromGenius, source: "Genius" };
+}
 
-  const html = await res.text();
+/**
+ * Nguồn 1: LRCLIB (https://lrclib.net) — trả lyric thường (plain).
+ * Không cần API key. Trả null nếu không tìm thấy.
+ */
+async function fetchFromLrclib(
+  title: string,
+  artist: string
+): Promise<string | null> {
+  try {
+    const url = `https://lrclib.net/api/search?q=${encodeURIComponent(
+      `${title} ${artist}`
+    )}`;
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "lyrics-bot (https://github.com/nhh0718/htn-lyrics)",
+      },
+    });
+    if (!res.ok) return null;
+
+    const items = (await res.json()) as Array<{
+      plainLyrics?: string | null;
+      syncedLyrics?: string | null;
+    }>;
+
+    const hit = items.find((i) => i.plainLyrics && i.plainLyrics.trim());
+    if (!hit?.plainLyrics) return null;
+    return cleanLyrics(hit.plainLyrics);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Nguồn 2: Scrape trang Genius. Thử trực tiếp trước; nếu bị chặn (403) thì
+ * thử lại qua proxy public (allorigins) để fetch từ IP không bị chặn.
+ */
+async function fetchFromGenius(songUrl: string): Promise<string> {
+  const html = await fetchGeniusHtml(songUrl);
   const $ = cheerio.load(html);
 
-  // Genius render lyric trong các div[data-lyrics-container="true"].
   const containers = $('[data-lyrics-container="true"]');
 
   if (containers.length === 0) {
-    // Fallback: layout cũ
     const legacy = $(".lyrics").text().trim();
     if (legacy) return cleanLyrics(legacy);
     throw new Error("Không tìm thấy nội dung lyric trên trang.");
@@ -127,7 +163,6 @@ export async function fetchLyrics(songUrl: string): Promise<string> {
 
   let lyrics = "";
   containers.each((_, el) => {
-    // Thay <br> bằng xuống dòng để giữ format.
     const part = $(el)
       .html()
       ?.replace(/<br\s*\/?>/gi, "\n")
@@ -138,6 +173,32 @@ export async function fetchLyrics(songUrl: string): Promise<string> {
   });
 
   return cleanLyrics(lyrics);
+}
+
+/**
+ * Tải HTML trang Genius: thử trực tiếp, nếu 403/429/lỗi thì thử qua proxy.
+ */
+async function fetchGeniusHtml(songUrl: string): Promise<string> {
+  try {
+    const res = await fetch(songUrl, {
+      headers: BROWSER_HEADERS,
+      redirect: "follow",
+    });
+    if (res.ok) return await res.text();
+  } catch {
+    // bỏ qua, chuyển sang proxy
+  }
+
+  const proxied = `https://api.allorigins.win/raw?url=${encodeURIComponent(
+    songUrl
+  )}`;
+  const res = await fetch(proxied, {
+    headers: { "User-Agent": USER_AGENT },
+  });
+  if (!res.ok) {
+    throw new Error(`Không tải được trang lyric: ${res.status}`);
+  }
+  return await res.text();
 }
 
 /**
