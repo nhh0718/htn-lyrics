@@ -145,11 +145,9 @@ export function createBot(token: string): Bot {
   });
 
   bot.command("nowplaying", async (ctx) => {
-    const userId = ctx.from?.id;
     const chatId = ctx.chat.id;
-    if (!userId) return;
-
     const users = getSpotifyUsers(chatId);
+
     if (!users || users.size === 0) {
       await ctx.reply(
         "Chưa có ai kết nối Spotify ở đây.\nGõ <code>/spotify</code> để kết nối! 🎧",
@@ -167,30 +165,9 @@ export function createBot(token: string): Bot {
       keyboard.text(`🎵 ${label}`, `np:${chatId}:${uid}`).row();
     }
 
-    try {
-      await ctx.api.sendMessage(
-        userId,
-        "🎧 <b>Bạn bè đang phát gì?</b>\n\nChọn người bạn muốn xem:",
-        { parse_mode: "HTML", reply_markup: keyboard }
-      );
-
-      if (ctx.chat.type !== "private") {
-        await ctx.reply(
-          "✅ Đã gửi danh sách qua tin nhắn riêng tư!",
-          { parse_mode: "HTML" }
-        );
-      }
-    } catch (err) {
-      const msg = String((err as Error).message);
-      if (msg.includes("bot can't initiate conversation")) {
-        await ctx.reply(
-          "⚠️ Tôi chưa thể nhắn riêng cho bạn. Hãy mở chat riêng với bot và gõ <code>/start</code>, sau đó thử lại <code>/nowplaying</code>.",
-          { parse_mode: "HTML" }
-        );
-      } else {
-        await ctx.reply(`⚠️ ${escapeHtml(msg)}`, { parse_mode: "HTML" });
-      }
-    }
+    await ctx.reply("🎧 Chọn bạn bè để xem đang phát gì trên Spotify:", {
+      reply_markup: keyboard,
+    });
   });
 
   bot.callbackQuery(/^lyric:(\d+)$/, async (ctx) => {
@@ -230,7 +207,6 @@ export function createBot(token: string): Bot {
   bot.callbackQuery(/^np:(-?\d+):(\d+)$/, async (ctx) => {
     const chatId = Number(ctx.match[1]);
     const userId = Number(ctx.match[2]);
-    const callerId = ctx.from?.id;
 
     try {
       await ctx.answerCallbackQuery({ text: "Đang kiểm tra..." });
@@ -240,12 +216,9 @@ export function createBot(token: string): Bot {
 
     const auth = getSpotifyUser(chatId, userId);
     if (!auth) {
-      if (callerId) {
-        await ctx.api.sendMessage(
-          callerId,
-          "Người dùng này chưa kết nối Spotify hoặc đã ngắt kết nối."
-        );
-      }
+      await ctx.reply(
+        "Người dùng này chưa kết nối Spotify hoặc đã ngắt kết nối."
+      );
       return;
     }
 
@@ -261,13 +234,10 @@ export function createBot(token: string): Bot {
 
       const playing = await getCurrentlyPlaying(token);
       if (!playing) {
-        if (callerId) {
-          await ctx.api.sendMessage(
-            callerId,
-            `🎵 <b>${escapeHtml(auth.firstName || auth.username || "Bạn bè")}</b> hiện không phát nhạc nào trên Spotify.`,
-            { parse_mode: "HTML" }
-          );
-        }
+        await ctx.reply(
+          `🎵 <b>${escapeHtml(auth.firstName || auth.username || "Bạn bè")}</b> hiện không phát nhạc nào trên Spotify.`,
+          { parse_mode: "HTML" }
+        );
         return;
       }
 
@@ -285,15 +255,13 @@ export function createBot(token: string): Bot {
         .filter(Boolean)
         .join("\n");
 
-      if (callerId) {
-        if (playing.imageUrl) {
-          await ctx.api.sendPhoto(callerId, playing.imageUrl, {
-            caption: text,
-            parse_mode: "HTML",
-          });
-        } else {
-          await ctx.api.sendMessage(callerId, text, { parse_mode: "HTML" });
-        }
+      if (playing.imageUrl) {
+        await ctx.replyWithPhoto(playing.imageUrl, {
+          caption: text,
+          parse_mode: "HTML",
+        });
+      } else {
+        await ctx.reply(text, { parse_mode: "HTML" });
       }
     } catch (err) {
       const msg = String((err as Error).message);
@@ -310,13 +278,10 @@ export function createBot(token: string): Bot {
         "5. Thử lại <code>/nowplaying</code>";
 
       const is403 = msg.includes("403");
-      if (callerId) {
-        await ctx.api.sendMessage(
-          callerId,
-          is403 ? hint403 : `⚠️ Không lấy được thông tin: ${escapeHtml(msg)}`,
-          { parse_mode: "HTML" }
-        );
-      }
+      await ctx.reply(
+        is403 ? hint403 : `⚠️ Không lấy được thông tin: ${escapeHtml(msg)}`,
+        { parse_mode: "HTML" }
+      );
     }
   });
 
@@ -373,9 +338,8 @@ export function createBot(token: string): Bot {
       /* ignore */
     }
 
-    const userId = ctx.from?.id;
     const chatId = ctx.chat?.id;
-    if (!userId || !chatId) return;
+    if (!chatId) return;
 
     const users = getSpotifyUsers(chatId);
     if (!users || users.size === 0) {
@@ -395,23 +359,9 @@ export function createBot(token: string): Bot {
       keyboard.text(`🎵 ${label}`, `np:${chatId}:${uid}`).row();
     }
 
-    try {
-      await ctx.api.sendMessage(
-        userId,
-        "🎧 <b>Bạn bè đang phát gì?</b>\n\nChọn người bạn muốn xem:",
-        { parse_mode: "HTML", reply_markup: keyboard }
-      );
-    } catch (err) {
-      const msg = String((err as Error).message);
-      if (msg.includes("bot can't initiate conversation")) {
-        await ctx.reply(
-          "⚠️ Hãy mở chat riêng với bot và gõ <code>/start</code> trước, sau đó quay lại đây.",
-          { parse_mode: "HTML" }
-        );
-      } else {
-        await ctx.reply(`⚠️ ${escapeHtml(msg)}`, { parse_mode: "HTML" });
-      }
-    }
+    await ctx.reply("🎧 Chọn bạn bè để xem đang phát gì trên Spotify:", {
+      reply_markup: keyboard,
+    });
   });
 
   bot.callbackQuery("menu:help", async (ctx) => {
