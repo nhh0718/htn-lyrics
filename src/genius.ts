@@ -169,39 +169,42 @@ async function fetchGeniusHtml(songUrl: string): Promise<string> {
     console.error("[Genius direct] lỗi mạng:", err);
   }
 
-  // Fallback 1: corsproxy.io
-  console.log("[Genius] thử qua corsproxy.io...");
-  const proxied1 = `https://corsproxy.io/?${encodeURIComponent(songUrl)}`;
+  // Fallback 1: codetabs proxy
+  console.log("[Genius] thử qua codetabs...");
+  const proxied1 = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(songUrl)}`;
   try {
     const res1 = await fetchWithTimeout(
       proxied1,
       { headers: { "User-Agent": USER_AGENT } },
       25000
     );
-    console.log(`[Genius corsproxy] status=${res1.status}`);
+    console.log(`[Genius codetabs] status=${res1.status}`);
     if (res1.ok) return await res1.text();
   } catch (err) {
-    console.error("[Genius corsproxy] lỗi:", err);
+    console.error("[Genius codetabs] lỗi:", err);
   }
 
-  // Fallback 2: thingproxy
-  console.log("[Genius] thử qua thingproxy...");
-  const proxied2 = `https://thingproxy.freeboard.io/html/${songUrl}`;
-  try {
-    const res2 = await fetchWithTimeout(
-      proxied2,
-      { headers: { "User-Agent": USER_AGENT } },
-      25000
-    );
-    console.log(`[Genius thingproxy] status=${res2.status}`);
-    if (res2.ok) return await res2.text();
-  } catch (err) {
-    console.error("[Genius thingproxy] lỗi:", err);
+  // Fallback 2: ScraperAPI (free tier 5000 req/tháng, vượt Cloudflare ổn định)
+  // Đăng ký tại https://www.scraperapi.com/ → lấy API key → thêm vào SCRAPERAPI_KEY
+  const scraperKey = process.env.SCRAPERAPI_KEY;
+  if (scraperKey) {
+    console.log("[Genius] thử qua ScraperAPI...");
+    const proxied2 = `https://api.scraperapi.com/?api_key=${scraperKey}&url=${encodeURIComponent(songUrl)}`;
+    try {
+      const res2 = await fetchWithTimeout(proxied2, {}, 30000);
+      console.log(`[Genius ScraperAPI] status=${res2.status}`);
+      if (res2.ok) return await res2.text();
+    } catch (err) {
+      console.error("[Genius ScraperAPI] lỗi:", err);
+    }
+  } else {
+    console.log("[Genius] bỏ qua ScraperAPI (chưa có SCRAPERAPI_KEY)");
   }
 
   throw new Error(
-    "Genius chặn IP datacenter (403) và tất cả proxy đều thất bại. " +
-    "Hãy thử lại sau hoặc dùng bài khác."
+    "Genius chặn IP datacenter (403) và tất cả proxy đều thất bại.\n" +
+    "Cách khả thi nhất: đăng ký ScraperAPI (https://www.scraperapi.com) free tier " +
+    "5000 request/tháng, thêm SCRAPERAPI_KEY vào biến môi trường."
   );
 }
 
