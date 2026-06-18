@@ -5,7 +5,7 @@ import "./load-env.js";
 import { createServer } from "node:http";
 import { createBot, escapeHtml } from "./bot.js";
 import { exchangeSpotifyCode } from "./spotify.js";
-import { setSpotifyUser } from "./spotify-store.js";
+import { saveSpotifyAuth } from "./db.js";
 
 const token = process.env.BOT_TOKEN;
 if (!token) {
@@ -69,12 +69,14 @@ const server = createServer(async (req, res) => {
         /* bỏ qua lỗi lấy profile */
       }
 
-      setSpotifyUser(chatId, {
-        userId,
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token,
-        expiresAt: Date.now() + tokens.expires_in * 1000,
-        firstName: displayName,
+      saveSpotifyAuth({
+        chat_id: chatId,
+        user_id: userId,
+        username: null,
+        first_name: displayName || null,
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        expires_at: Math.floor(Date.now() / 1000) + tokens.expires_in,
       });
 
       await bot.api.sendMessage(

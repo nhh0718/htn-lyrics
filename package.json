@@ -10,6 +10,8 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.11.1",
     "cheerio": "^1.0.0",
     "grammy": "^1.30.0",
     "tsx": "^4.19.0"

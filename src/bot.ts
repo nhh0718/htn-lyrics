@@ -5,7 +5,12 @@ import {
   getCurrentlyPlaying,
   refreshSpotifyToken,
 } from "./spotify.js";
-import { getSpotifyUser, getSpotifyUsers, setSpotifyUser } from "./spotify-store.js";
+import {
+  getSpotifyAuth,
+  getSpotifyAuthsByChat,
+  saveSpotifyAuth,
+  deleteSpotifyAuth,
+} from "./db.js";
 
 const TELEGRAM_MAX = 4096;
 
@@ -112,6 +117,26 @@ export function createBot(token: string): Bot {
     const chatId = ctx.chat.id;
     if (!userId) return;
 
+    const existing = getSpotifyAuth(chatId, userId);
+
+    if (existing) {
+      // Đã kết nối → hiển thị trạng thái + cho phép logout
+      const name =
+        existing.first_name || existing.username || `User ${userId}`;
+      const keyboard = new InlineKeyboard().text(
+        "🔓 Ngắt kết nối Spotify",
+        `spotify:logout:${chatId}:${userId}`
+      );
+
+      await ctx.reply(
+        `✅ <b>Bạn đã kết nối Spotify</b>\n\n👤 ${escapeHtml(name)}\n\n` +
+          "Nhấn nút bên dưới nếu muốn ngắt kết nối:",
+        { parse_mode: "HTML", reply_markup: keyboard }
+      );
+      return;
+    }
+
+    // Chưa kết nối → gửi link OAuth
     const state = `${chatId}:${userId}:${Math.random().toString(36).slice(2)}`;
     try {
       const url = generateSpotifyAuthUrl(state);
@@ -146,9 +171,9 @@ export function createBot(token: string): Bot {
 
   bot.command("nowplaying", async (ctx) => {
     const chatId = ctx.chat.id;
-    const users = getSpotifyUsers(chatId);
+    const users = getSpotifyAuthsByChat(chatId);
 
-    if (!users || users.size === 0) {
+    if (!users || users.length === 0) {
       await ctx.reply(
         "Chưa có ai kết nối Spotify ở đây.\nGõ <code>/spotify</code> để kết nối! 🎧",
         { parse_mode: "HTML" }
@@ -157,12 +182,12 @@ export function createBot(token: string): Bot {
     }
 
     const keyboard = new InlineKeyboard();
-    for (const [uid, auth] of users) {
+    for (const auth of users) {
       const label = truncate(
-        auth.firstName || auth.username || `User ${uid}`,
+        auth.first_name || auth.username || `User ${auth.user_id}`,
         60
       );
-      keyboard.text(`🎵 ${label}`, `np:${chatId}:${uid}`).row();
+      keyboard.text(`🎵 ${label}`, `np:${chatId}:${auth.user_id}`).row();
     }
 
     await ctx.reply("🎧 Chọn bạn bè để xem đang phát gì trên Spotify:", {
@@ -214,7 +239,7 @@ export function createBot(token: string): Bot {
       /* ignore */
     }
 
-    const auth = getSpotifyUser(chatId, userId);
+    const auth = getSpotifyAuth(chatId, userId);
     if (!auth) {
       await ctx.reply(
         "Người dùng này chưa kết nối Spotify hoặc đã ngắt kết nối."
@@ -223,19 +248,20 @@ export function createBot(token: string): Bot {
     }
 
     try {
-      let token = auth.accessToken;
-      if (Date.now() >= auth.expiresAt - 60_000) {
-        const refreshed = await refreshSpotifyToken(auth.refreshToken);
+      let token = auth.access_token;
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (nowSec >= auth.expires_at - 60) {
+        const refreshed = await refreshSpotifyToken(auth.refresh_token);
         token = refreshed.access_token;
-        auth.accessToken = token;
-        auth.expiresAt = Date.now() + refreshed.expires_in * 1000;
-        setSpotifyUser(chatId, auth);
+        auth.access_token = token;
+        auth.expires_at = nowSec + refreshed.expires_in;
+        saveSpotifyAuth(auth);
       }
 
       const playing = await getCurrentlyPlaying(token);
       if (!playing) {
         await ctx.reply(
-          `🎵 <b>${escapeHtml(auth.firstName || auth.username || "Bạn bè")}</b> hiện không phát nhạc nào trên Spotify.`,
+          `🎵 <b>${escapeHtml(auth.first_name || auth.username || "Bạn bè")}</b> hiện không phát nhạc nào trên Spotify.`,
           { parse_mode: "HTML" }
         );
         return;
@@ -243,7 +269,7 @@ export function createBot(token: string): Bot {
 
       const status = playing.isPlaying ? "▶️ Đang phát" : "⏸️ Tạm dừng";
       const text = [
-        `🎵 <b>${escapeHtml(auth.firstName || auth.username || "Bạn bè")}</b>`,
+        `🎵 <b>${escapeHtml(auth.first_name || auth.username || "Bạn bè")}</b>`,
         status,
         `\n🎵 <b>${escapeHtml(playing.trackName)}</b>`,
         `👤 ${escapeHtml(playing.artistName)}`,
@@ -309,6 +335,22 @@ export function createBot(token: string): Bot {
     const chatId = ctx.chat?.id;
     if (!userId || !chatId) return;
 
+    const existing = getSpotifyAuth(chatId, userId);
+    if (existing) {
+      const name =
+        existing.first_name || existing.username || `User ${userId}`;
+      const keyboard = new InlineKeyboard().text(
+        "🔓 Ngắt kết nối",
+        `spotify:logout:${chatId}:${userId}`
+      );
+      await ctx.reply(
+        `✅ <b>Đã kết nối Spotify</b>\n\n👤 ${escapeHtml(name)}\n\n` +
+          "Nhấn nút bên dưới nếu muốn ngắt kết nối:",
+        { parse_mode: "HTML", reply_markup: keyboard }
+      );
+      return;
+    }
+
     const state = `${chatId}:${userId}:${Math.random().toString(36).slice(2)}`;
     try {
       const url = generateSpotifyAuthUrl(state);
@@ -341,8 +383,8 @@ export function createBot(token: string): Bot {
     const chatId = ctx.chat?.id;
     if (!chatId) return;
 
-    const users = getSpotifyUsers(chatId);
-    if (!users || users.size === 0) {
+    const users = getSpotifyAuthsByChat(chatId);
+    if (!users || users.length === 0) {
       await ctx.reply(
         "Chưa có ai kết nối Spotify ở đây.\nGõ <code>/spotify</code> để kết nối! 🎧",
         { parse_mode: "HTML" }
@@ -351,12 +393,12 @@ export function createBot(token: string): Bot {
     }
 
     const keyboard = new InlineKeyboard();
-    for (const [uid, auth] of users) {
+    for (const auth of users) {
       const label = truncate(
-        auth.firstName || auth.username || `User ${uid}`,
+        auth.first_name || auth.username || `User ${auth.user_id}`,
         60
       );
-      keyboard.text(`🎵 ${label}`, `np:${chatId}:${uid}`).row();
+      keyboard.text(`🎵 ${label}`, `np:${chatId}:${auth.user_id}`).row();
     }
 
     await ctx.reply("🎧 Chọn bạn bè để xem đang phát gì trên Spotify:", {
@@ -379,6 +421,29 @@ export function createBot(token: string): Bot {
         "<i>Các luồng nhạy cảm (Spotify) tự động gửi riêng tư để tránh làm phiền nhóm.</i>",
       { parse_mode: "HTML" }
     );
+  });
+
+  bot.callbackQuery(/^spotify:logout:(-?\d+):(\d+)$/, async (ctx) => {
+    try {
+      await ctx.answerCallbackQuery({ text: "Đang ngắt kết nối..." });
+    } catch {
+      /* ignore */
+    }
+
+    const chatId = Number(ctx.match[1]);
+    const userId = Number(ctx.match[2]);
+
+    if (deleteSpotifyAuth(chatId, userId)) {
+      await ctx.reply(
+        "✅ Đã <b>ngắt kết nối</b> Spotify.",
+        { parse_mode: "HTML" }
+      );
+    } else {
+      await ctx.reply(
+        "⚠️ Không tìm thấy kết nối Spotify để ngắt.",
+        { parse_mode: "HTML" }
+      );
+    }
   });
 
   return bot;
