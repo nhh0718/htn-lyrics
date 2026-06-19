@@ -46,9 +46,13 @@ function replyToUserOptions(ctx: Context) {
   return { reply_to_message_id: msg.message_id };
 }
 
+const lyricPrompts = new Set<string>();
+
 function isLyricPromptReply(msg: Message): boolean {
   const replied = msg.reply_to_message;
   if (!replied || !("text" in replied)) return false;
+  const promptKey = msg.chat.id + ":" + replied.message_id;
+  if (lyricPrompts.has(promptKey)) return true;
   return replied.text?.includes("Tìm lời bài hát") ?? false;
 }
 
@@ -251,35 +255,42 @@ export function createBot(token: string): Bot {
 
   /* ── Lyric prompt handling (ForceReply) ── */
   bot.on("message:text", async (ctx) => {
-    const msg = ctx.message;
-    if (!isLyricPromptReply(msg)) return;
+    try {
+      const msg = ctx.message;
+      const replied = msg.reply_to_message;
+      console.log("[lyric text] received:", msg.text, "reply_to:", replied?.message_id, "text:", (replied && "text" in replied) ? replied.text : undefined);
 
-    const replied = msg.reply_to_message;
-    if (!replied) return;
+      if (!isLyricPromptReply(msg)) {
+        console.log("[lyric text] not a lyric prompt reply");
+        return;
+      }
+      if (!replied) return;
 
-    const chatId = ctx.chat.id;
-    const promptMessageId = replied.message_id;
-    const query = msg.text.trim();
-    const userName = escapeHtml(userDisplayName(ctx));
+      const chatId = ctx.chat.id;
+      const promptMessageId = replied.message_id;
+      const query = msg.text.trim();
+      const userName = escapeHtml(userDisplayName(ctx));
+      lyricPrompts.delete(chatId + ":" + promptMessageId);
 
-    if (!query) {
+      console.log("[lyric text] searching for:", query);
+
+      if (!query) {
+        await ctx.api.editMessageText(
+          chatId,
+          promptMessageId,
+          "⚠️ <b>" + userName + "</b>: Tên bài hát không hợp lệ.",
+          { parse_mode: "HTML", reply_markup: backButton(new InlineKeyboard()) }
+        );
+        return;
+      }
+
       await ctx.api.editMessageText(
         chatId,
         promptMessageId,
-        "⚠️ <b>" + userName + "</b>: Tên bài hát không hợp lệ.",
-        { parse_mode: "HTML", reply_markup: backButton(new InlineKeyboard()) }
+        '🔎 Đang tìm "<b>' + escapeHtml(query) + '</b>"…',
+        { parse_mode: "HTML" }
       );
-      return;
-    }
 
-    await ctx.api.editMessageText(
-      chatId,
-      promptMessageId,
-      '🔎 Đang tìm "<b>' + escapeHtml(query) + '</b>"…',
-      { parse_mode: "HTML" }
-    );
-
-    try {
       const hits = await searchSongs(query);
       if (hits.length === 0) {
         await ctx.api.editMessageText(
@@ -305,12 +316,24 @@ export function createBot(token: string): Bot {
         { parse_mode: "HTML", reply_markup: keyboard }
       );
     } catch (err) {
-      await ctx.api.editMessageText(
-        chatId,
-        promptMessageId,
-        "⚠️ <b>" + userName + "</b>: Lỗi khi tìm kiếm: " + escapeHtml(String((err as Error).message)),
-        { parse_mode: "HTML", reply_markup: backButton(new InlineKeyboard()) }
-      );
+      console.error("[lyric text] error:", err);
+      try {
+        const userName = escapeHtml(userDisplayName(ctx));
+        const msg = ctx.message;
+        const replied = msg.reply_to_message;
+        if (replied) {
+          await ctx.api.editMessageText(
+            ctx.chat.id,
+            replied.message_id,
+            "⚠️ <b>" + userName + "</b>: Lỗi khi tìm kiếm: " + escapeHtml(String((err as Error).message)),
+            { parse_mode: "HTML", reply_markup: backButton(new InlineKeyboard()) }
+          );
+        } else {
+          await ctx.reply("⚠️ <b>" + userName + "</b>: Lỗi khi tìm kiếm.", { parse_mode: "HTML" });
+        }
+      } catch (replyErr) {
+        console.error("[lyric text] failed to send error reply:", replyErr);
+      }
     }
   });
 
@@ -524,7 +547,7 @@ export function createBot(token: string): Bot {
       /* ignore */
     }
 
-    await ctx.api.sendMessage(
+    const prompt = await ctx.api.sendMessage(
       chatId,
       "🎵 <b>Tìm lời bài hát</b>\n\n<b>" + userName + "</b>, nhập tên bài hát bạn muốn tìm:",
       {
@@ -533,6 +556,7 @@ export function createBot(token: string): Bot {
         reply_markup: { force_reply: true, input_field_placeholder: "Nhập tên bài hát…" },
       }
     );
+    lyricPrompts.add(chatId + ":" + prompt.message_id);
   });
 
   bot.callbackQuery("menu:spotify", async (ctx) => {
