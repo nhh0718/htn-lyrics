@@ -5,7 +5,10 @@ if (!DATABASE_URL) {
   throw new Error("Missing DATABASE_URL environment variable");
 }
 
-export const pool = new Pool({ connectionString: DATABASE_URL });
+export const pool = new Pool({
+  connectionString: DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
 
 // ── Schema ──
 await pool.query(`
