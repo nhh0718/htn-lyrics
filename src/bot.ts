@@ -274,63 +274,66 @@ export function createBot(token: string): Bot {
 
       console.log("[lyric text] searching for:", query);
 
+      // Xóa prompt ForceReply (không thể edit) và gửi tin nhắn kết quả mới
+      try {
+        await ctx.api.deleteMessage(chatId, promptMessageId);
+      } catch {
+        /* ignore */
+      }
+
       if (!query) {
-        await ctx.api.editMessageText(
-          chatId,
-          promptMessageId,
+        await ctx.reply(
           "⚠️ <b>" + userName + "</b>: Tên bài hát không hợp lệ.",
-          { parse_mode: "HTML", reply_markup: backButton(new InlineKeyboard()) }
+          { parse_mode: "HTML", reply_markup: backButton(new InlineKeyboard()), reply_to_message_id: msg.message_id }
         );
         return;
       }
 
-      await ctx.api.editMessageText(
-        chatId,
-        promptMessageId,
-        '🔎 Đang tìm "<b>' + escapeHtml(query) + '</b>"…',
-        { parse_mode: "HTML" }
+      const resultMsg = await ctx.reply(
+        '🔎 <b>' + userName + '</b>: Đang tìm "<b>' + escapeHtml(query) + '</b>"…',
+        { parse_mode: "HTML", reply_to_message_id: msg.message_id }
       );
 
-      const hits = await searchSongs(query);
-      if (hits.length === 0) {
+      const resultMessageId = resultMsg.message_id;
+
+      try {
+        const hits = await searchSongs(query);
+        if (hits.length === 0) {
+          await ctx.api.editMessageText(
+            chatId,
+            resultMessageId,
+            "<b>" + userName + "</b>: Không tìm thấy kết quả nào cho \"<b>" + escapeHtml(query) + '</b>".',
+            { parse_mode: "HTML", reply_markup: backButton(new InlineKeyboard()) }
+          );
+          return;
+        }
+
+        const keyboard = new InlineKeyboard();
+        for (const hit of hits) {
+          const label = truncate(hit.title + " — " + hit.artist, 60);
+          keyboard.text(label, "lyric:" + hit.id).row();
+        }
+        backButton(keyboard);
+
         await ctx.api.editMessageText(
           chatId,
-          promptMessageId,
-          "<b>" + userName + "</b>: Không tìm thấy kết quả nào cho \"<b>" + escapeHtml(query) + '</b>".',
+          resultMessageId,
+          "🎵 <b>" + userName + "</b>: Tìm thấy <b>" + hits.length + '</b> kết quả cho "<b>' + escapeHtml(query) + '</b>".\nChọn bài bạn muốn xem lời:',
+          { parse_mode: "HTML", reply_markup: keyboard }
+        );
+      } catch (err) {
+        await ctx.api.editMessageText(
+          chatId,
+          resultMessageId,
+          "⚠️ <b>" + userName + "</b>: Lỗi khi tìm kiếm: " + escapeHtml(String((err as Error).message)),
           { parse_mode: "HTML", reply_markup: backButton(new InlineKeyboard()) }
         );
-        return;
       }
-
-      const keyboard = new InlineKeyboard();
-      for (const hit of hits) {
-        const label = truncate(hit.title + " — " + hit.artist, 60);
-        keyboard.text(label, "lyric:" + hit.id).row();
-      }
-      backButton(keyboard);
-
-      await ctx.api.editMessageText(
-        chatId,
-        promptMessageId,
-        "🎵 <b>" + userName + "</b>: Tìm thấy <b>" + hits.length + '</b> kết quả cho "<b>' + escapeHtml(query) + '</b>".\nChọn bài bạn muốn xem lời:',
-        { parse_mode: "HTML", reply_markup: keyboard }
-      );
     } catch (err) {
       console.error("[lyric text] error:", err);
       try {
         const userName = escapeHtml(userDisplayName(ctx));
-        const msg = ctx.message;
-        const replied = msg.reply_to_message;
-        if (replied) {
-          await ctx.api.editMessageText(
-            ctx.chat.id,
-            replied.message_id,
-            "⚠️ <b>" + userName + "</b>: Lỗi khi tìm kiếm: " + escapeHtml(String((err as Error).message)),
-            { parse_mode: "HTML", reply_markup: backButton(new InlineKeyboard()) }
-          );
-        } else {
-          await ctx.reply("⚠️ <b>" + userName + "</b>: Lỗi khi tìm kiếm.", { parse_mode: "HTML" });
-        }
+        await ctx.reply("⚠️ <b>" + userName + "</b>: Lỗi khi tìm kiếm.", { parse_mode: "HTML" });
       } catch (replyErr) {
         console.error("[lyric text] failed to send error reply:", replyErr);
       }
