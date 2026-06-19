@@ -69,7 +69,7 @@ const server = createServer(async (req, res) => {
         /* bỏ qua lỗi lấy profile */
       }
 
-      saveSpotifyAuth({
+      await saveSpotifyAuth({
         chat_id: chatId,
         user_id: userId,
         username: null,

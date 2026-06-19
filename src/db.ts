@@ -1,26 +1,23 @@
-import Database from "better-sqlite3";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { Pool } from "pg";
 
-const DB_PATH = process.env.DATABASE_URL || "./data/spotify.db";
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  throw new Error("Missing DATABASE_URL environment variable");
+}
 
-// Đảm bảo thư mục tồn tại
-mkdirSync(dirname(DB_PATH), { recursive: true });
-
-const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
+export const pool = new Pool({ connectionString: DATABASE_URL });
 
 // ── Schema ──
-db.exec(`
+await pool.query(`
   CREATE TABLE IF NOT EXISTS spotify_auth (
-    chat_id   INTEGER NOT NULL,
-    user_id   INTEGER NOT NULL,
-    username  TEXT,
-    first_name TEXT,
+    chat_id       BIGINT NOT NULL,
+    user_id       BIGINT NOT NULL,
+    username      TEXT,
+    first_name    TEXT,
     access_token  TEXT NOT NULL,
     refresh_token TEXT NOT NULL,
-    expires_at    INTEGER NOT NULL,
-    connected_at  INTEGER DEFAULT (unixepoch()),
+    expires_at    BIGINT NOT NULL,
+    connected_at  BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW())::BIGINT),
     PRIMARY KEY (chat_id, user_id)
   );
 `);
@@ -36,55 +33,70 @@ export type SpotifyAuthRow = {
 };
 
 // ── Helpers ──
-export function saveSpotifyAuth(row: SpotifyAuthRow): void {
-  const stmt = db.prepare(`
+export async function saveSpotifyAuth(row: SpotifyAuthRow): Promise<void> {
+  await pool.query(
+    `
     INSERT INTO spotify_auth
       (chat_id, user_id, username, first_name, access_token, refresh_token, expires_at)
     VALUES
-      (@chat_id, @user_id, @username, @first_name, @access_token, @refresh_token, @expires_at)
-    ON CONFLICT(chat_id, user_id) DO UPDATE SET
-      username = excluded.username,
-      first_name = excluded.first_name,
-      access_token = excluded.access_token,
-      refresh_token = excluded.refresh_token,
-      expires_at = excluded.expires_at,
-      connected_at = unixepoch()
-  `);
-  stmt.run(row);
+      ($1, $2, $3, $4, $5, $6, $7)
+    ON CONFLICT (chat_id, user_id) DO UPDATE SET
+      username = EXCLUDED.username,
+      first_name = EXCLUDED.first_name,
+      access_token = EXCLUDED.access_token,
+      refresh_token = EXCLUDED.refresh_token,
+      expires_at = EXCLUDED.expires_at,
+      connected_at = EXTRACT(EPOCH FROM NOW())::BIGINT
+    `,
+    [
+      row.chat_id,
+      row.user_id,
+      row.username,
+      row.first_name,
+      row.access_token,
+      row.refresh_token,
+      row.expires_at,
+    ]
+  );
 }
 
-export function getSpotifyAuth(
+export async function getSpotifyAuth(
   chatId: number,
   userId: number
-): SpotifyAuthRow | undefined {
-  const stmt = db.prepare(
-    `SELECT * FROM spotify_auth WHERE chat_id = ? AND user_id = ?`
+): Promise<SpotifyAuthRow | undefined> {
+  const result = await pool.query(
+    `SELECT * FROM spotify_auth WHERE chat_id = $1 AND user_id = $2`,
+    [chatId, userId]
   );
-  return stmt.get(chatId, userId) as SpotifyAuthRow | undefined;
+  return (result.rows[0] as SpotifyAuthRow) || undefined;
 }
 
-export function getSpotifyAuthsByChat(
+export async function getSpotifyAuthsByChat(
   chatId: number
-): SpotifyAuthRow[] {
-  const stmt = db.prepare(
-    `SELECT * FROM spotify_auth WHERE chat_id = ? ORDER BY first_name, username`
+): Promise<SpotifyAuthRow[]> {
+  const result = await pool.query(
+    `SELECT * FROM spotify_auth WHERE chat_id = $1 ORDER BY first_name, username`,
+    [chatId]
   );
-  return stmt.all(chatId) as SpotifyAuthRow[];
+  return result.rows as SpotifyAuthRow[];
 }
 
-export function deleteSpotifyAuth(chatId: number, userId: number): boolean {
-  const stmt = db.prepare(
-    `DELETE FROM spotify_auth WHERE chat_id = ? AND user_id = ?`
-  );
-  const info = stmt.run(chatId, userId);
-  return info.changes > 0;
-}
-
-export function isSpotifyConnected(
+export async function deleteSpotifyAuth(
   chatId: number,
   userId: number
-): boolean {
-  const row = getSpotifyAuth(chatId, userId);
+): Promise<boolean> {
+  const result = await pool.query(
+    `DELETE FROM spotify_auth WHERE chat_id = $1 AND user_id = $2`,
+    [chatId, userId]
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function isSpotifyConnected(
+  chatId: number,
+  userId: number
+): Promise<boolean> {
+  const row = await getSpotifyAuth(chatId, userId);
   if (!row) return false;
   // Coi như hết hạn nếu expires_at < now + 60s buffer
   return row.expires_at > Date.now() / 1000 + 60;
